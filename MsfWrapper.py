@@ -6,6 +6,7 @@ class MsfWrapper:
 
     def __init__(self, client):
         self.client = client
+        psh_import_folder = None
         self.sess_data = {}
 
     def debug_info(self, output, label, label_num):
@@ -51,6 +52,7 @@ class MsfWrapper:
         self.sess_data[msf_sess_num_str]['errors'] = []
         self.sess_data[msf_sess_num_str]['session_number'] = msf_sess_num_str
         self.sess_data[msf_sess_num_str]['in_os_shell'] = 'False'
+        self.sess_data[msf_sess_num_str]['plugins'] = []
         await self.get_user(msf_sess_num_str)
 
 
@@ -295,14 +297,14 @@ class MsfWrapper:
             cmd = 'echo %WINDIR%'
             win_dir = await self.get_env_dir(sess_num, cmd)
             write_path = win_dir+'\\temp\\'
+            self.sess_data[sess_num]['write_path'] = write_path
 
         # Regular user write path will be something like "C:\users\username\AppData\Local"
         else:
             cmd = 'echo %USERPROFILE%'
             home_dir = await self.get_env_dir(sess_num, cmd)
             write_path = home_dir + '\\AppData\\Local\\'
-
-        self.sess_data[sess_num]['write_path'] = write_path
+            self.sess_data[sess_num]['write_path'] = write_path
 
         return write_path+'cache'
 
@@ -320,14 +322,43 @@ class MsfWrapper:
                     return directory
 
 
+    async def import_psh(self, sess_num, filename):
+        '''
+        Imports PowerShell scripts
+        '''
+        # Load powershell plugin
+        plugin = 'powershell'
+        if plugin not in self.sess_data[sess_num]['plugins']:
+            output, err = await self.load_plugin(sess_num, 'powershell')
+
+        if not self.psh_import_folder:
+            return 'No PowerShell import folder set'
+
+        if self.psh_import_folder.endswith('/'):
+            path = self.psh_import_folder + filename
+        else: 
+            path = self.psh_import_folder + '/' + filename
+
+        cmd = 'powershell_import ' + path
+        end_strs = ['successfully imported.']
+
+        output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
+
+        return (output, err)
+
+
     async def run_psh_cmd_with_output(self, sess_num, ps_cmd):#, write_path):
-        ''' There is no timeout setting for the powershell plugin in metasploit
+        '''
+        There is no timeout setting for the powershell plugin in metasploit
         so shit just times out super fast. We hack around this by running long-running
         cmds then trying a fast cmd like write-host and wait until write-host actually
-        works '''
+        works
+        '''
 
         # Load powershell plugin
-        output, err = await self.load_plugin(sess_num, 'powershell')
+        plugin = 'powershell'
+        if plugin not in self.sess_data[sess_num]['plugins']:
+            output, err = await self.load_plugin(sess_num, 'powershell')
         
         # Get write path
         write_path = await self.get_writeable_path(sess_num)
@@ -366,7 +397,7 @@ class MsfWrapper:
         cmd = 'load '+plugin
         end_strs = ['extension has already been loaded', 'success']
         output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
-
+        self.sess_data[sess_num]['plugins'].append(plugin)
         return (output, err)
 
 

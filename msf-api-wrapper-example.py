@@ -3,7 +3,7 @@
 import sys
 import asyncio
 from lib.msfrpc import Msfrpc, MsfAuthError, MsfError
-from MsfrpcWrapper import MsfWrapper
+from MsfWrapper import MsfWrapper
 from IPython import embed
 
 
@@ -66,6 +66,7 @@ end_strs = ['windows']
 fut = asyncio.ensure_future(msf_api.run_session_cmd(sess_num, cmd, end_strs))
 out, err = loop.run_until_complete(fut)
 print(out)
+print(err)
 
 
 # Drop into an OS shell from meterpreter and run a command
@@ -75,6 +76,7 @@ end_strs = ['here']
 fut = asyncio.ensure_future(msf_api.run_shell_cmd(sess_num, cmd, end_strs))
 out, err = loop.run_until_complete(fut)
 print(out)
+print(err)
 
 
 # Run a PowerShell command
@@ -84,6 +86,25 @@ print('\n[*] Running slow PowerShell command: '+cmd)
 fut = asyncio.ensure_future(msf_api.run_psh_cmd_with_output(sess_num, cmd))
 out, err = loop.run_until_complete(fut)
 print(out)
+print(err)
+
+
+# Import a PowerShell script
+msf_api.psh_import_folder = '/home/dan/tools/MsfWrapper/'
+filename = 'PowerView.ps1'
+fut = asyncio.ensure_future(msf_api.import_psh(sess_num, filename))
+out, err = loop.run_until_complete(fut)
+print(out)
+print(err)
+
+
+# Run a PowerShell cmdlet
+cmd = 'Get-IPAddress'
+print('\n[*] Running PowerShell cmdlet: '+cmd)
+fut = asyncio.ensure_future(msf_api.run_psh_cmd_with_output(sess_num, cmd))
+out, err = loop.run_until_complete(fut)
+print(out)
+print(err)
 
 
 # Drop into an IPython shell
