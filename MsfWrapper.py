@@ -1,6 +1,6 @@
 import asyncio
 import os
-#from IPython import embed
+from IPython import embed
 
 class MsfWrapper:
 
@@ -123,9 +123,6 @@ class MsfWrapper:
         list_offset = consoles.index(c_id)
         output = ''
 
-        # Give it a chance to start
-        await asyncio.sleep(sleep_secs)
-
         # Get any initial output
         output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
 
@@ -134,21 +131,6 @@ class MsfWrapper:
             output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
             await asyncio.sleep(sleep_secs)
             counter += sleep_secs
-
-        # 
-        #while True:
-        #    output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
-
-        #    if end_strs:
-
-        #        if any(end_str in output.lower() for end_str in end_strs):
-        #            break
-
-        #    if counter > timeout:
-        #        break
-
-        #    await asyncio.sleep(sleep_secs)
-        #    counter += sleep_secs
 
         # Get remaining output
         output += self.client.call('console.read', [c_id])[b'data'].decode('utf8')
@@ -170,77 +152,97 @@ class MsfWrapper:
 
         # Error from MSF API
         if b'error_message' in res:
-            err_msg = res[b'error_message'].decode('utf8')
-            self.sess_data[sess_num]['errors'].append(err_msg)
-            self.make_session_not_busy(sess_num)
-            return (None, err_msg)
+            return self.get_res_err(res)
 
         # Successfully completed MSF API call
         elif res[b'result'] == b'success':
 
-            counter = 0
-            sleep_secs = 1
-            full_output = ''
-
             try:
-                num_es = 1
-                while True:
-                    await asyncio.sleep(sleep_secs)
-
-                    output, err = self.get_output(sess_num)
-                    if output:
-                        self.debug_info(output, 'Session', sess_num)###
-                        full_output += output
-
-                    # Error from meterpreter console
-                    if err:
-                        self.sess_data[sess_num]['errors'].append(err)
-                        break
-
-                    # Check for errors from cmd's output
-                    err = self.get_output_errors(full_output, cmd)
-                    if err:
-                        break
-
-                    # If no terminating string specified just wait til timeout
-                    counter += sleep_secs
-                    if counter > timeout:
-                        err = 'Command [{}] timed out'.format(cmd.strip())
-                        break
-
-                    # Successfully completed
-                    if end_strs:
-                        if any(end_str in output.lower() for end_str in end_strs):
-                            break
-
-                    # If no end_strs specified just return once we have any data or until timeout
-                    else:
-                        if len(full_output) > 0:
-                            break
+                full_output, err = await self.get_full_output(sess_num, cmd, end_strs, timeout)
 
             # This usually occurs when the session suddenly dies or user quits it
-            except Exception as e:
-                # Get the last of the data to clear the buffer
-                clear_buffer = self.client.call('session.meterpreter_read', [sess_num])
-                err = 'exception below likely due to abrupt death of session'
-                self.sess_data[sess_num]['errors'].append(err)
-                #self.debug_info(full_output, 'Session', sess_num)
-                self.make_session_not_busy(sess_num)
+            except Exception as err:
+                full_output, err = self.handle_exception(sess_num, err)
                 return (full_output, err)
-
-        # b'result' not in res, b'error_message' not in res, just catch everything else as an error
-        else:
-            err = res[b'result'].decode('utf8')
-            self.sess_data[sess_num]['errors'].append(err)
 
         # Get the last of the data to clear the buffer
         clear_buffer = self.client.call('session.meterpreter_read', [sess_num])
 
-        #self.debug_info(full_output, 'Session', sess_num)
-
         self.make_session_not_busy(sess_num)
 
         return (full_output, err)
+
+
+    async def get_full_output(self, sess_num, cmd, end_strs, timeout):
+        '''
+        Gets session output and figures out when to stop looking for output
+        '''
+        sleep_secs = 1
+        counter = 0
+        full_output = ''
+
+        while True:
+
+            await asyncio.sleep(sleep_secs)
+
+            output, err = self.get_output(sess_num)
+
+            # Add this output to full_output
+            if output:
+                self.debug_info(output, 'Session', sess_num)###
+                full_output += output
+
+            # Error from meterpreter console
+            if err:
+                self.sess_data[sess_num]['errors'].append(err)
+                break
+
+            # Check for errors from cmd's output
+            err = self.get_output_errors(full_output, cmd)
+            if err:
+                break
+
+            # If no terminating string specified just wait til timeout
+            counter += sleep_secs
+            if counter > timeout:
+                err = 'Command [{}] timed out'.format(cmd.strip())
+                break
+
+            # Successfully completed
+            if end_strs:
+                if any(end_str in output.lower() for end_str in end_strs):
+                    break
+
+            # If no end_strs specified just return once we have any data or until timeout
+            else:
+                if len(full_output) > 0:
+                    break
+
+        return (full_output, err)
+
+
+    def handle_exception(self, sess_num, err):
+        '''
+        Handle an exception in the loop grabbing output
+        '''
+        full_output = None
+
+        # Get the last of the data to clear the buffer
+        clear_buffer = self.client.call('session.meterpreter_read', [sess_num])
+        self.sess_data[sess_num]['errors'].append(err)
+        self.make_session_not_busy(sess_num)
+
+        return (full_output, err)
+
+
+    def get_res_err(self, res):
+        '''
+        Handles API response errors
+        '''
+        err_msg = res[b'error_message'].decode('utf8')
+        self.sess_data[sess_num]['errors'].append(err_msg)
+        self.make_session_not_busy(sess_num)
+        return (None, err_msg)
 
 
     def get_output(self, sess_num):
@@ -468,6 +470,7 @@ class MsfWrapper:
         end_strs = ['>']
         output, err = await self.run_session_cmd(sess_num, cmd, end_strs)
 
+        embed()
         if 'is not recognized as an internal or external command' in output:
             await self.end_shell(sess_num)
             output, err = await self.run_session_cmd(sess_num, cmd, end_strs)

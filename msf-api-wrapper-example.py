@@ -58,15 +58,15 @@ print(out)
 
 
 # Run a command on a session
-cmd = 'dir C:/Users/'
+cmd = 'dir C:/'
 print('\n[*] Running session command: '+cmd)
 # This is a list of strings that will cause msf_api to stop looking for further command output
 # It is case insensitive
 end_strs = ['windows']
 fut = asyncio.ensure_future(msf_api.run_session_cmd(sess_num, cmd, end_strs))
 out, err = loop.run_until_complete(fut)
-print(out)
-print(err)
+print('Output: '+out)
+print('Error: '+err)
 
 
 # Drop into an OS shell from meterpreter and run a command
@@ -75,8 +75,8 @@ print('\n[*] Running OS shell command: '+cmd)
 end_strs = ['here']
 fut = asyncio.ensure_future(msf_api.run_shell_cmd(sess_num, cmd, end_strs))
 out, err = loop.run_until_complete(fut)
-print(out)
-print(err)
+print('Output: '+out)
+print('Error: '+err)
 
 
 # Run a PowerShell command
@@ -85,17 +85,18 @@ cmd = 'sleep 30; Write-Output "McInerney was here"'
 print('\n[*] Running slow PowerShell command: '+cmd)
 fut = asyncio.ensure_future(msf_api.run_psh_cmd_with_output(sess_num, cmd))
 out, err = loop.run_until_complete(fut)
-print(out)
-print(err)
+print('Output: '+out)
+print('Error: '+err)
 
 
 # Import a PowerShell script
 msf_api.psh_import_folder = '/home/dan/tools/MsfWrapper/'
 filename = 'PowerView.ps1'
+print('\n[*] Importing PowerShell script: '+filename)
 fut = asyncio.ensure_future(msf_api.import_psh(sess_num, filename))
 out, err = loop.run_until_complete(fut)
-print(out)
-print(err)
+print('Output: '+out)
+print('Error: '+err)
 
 
 # Run a PowerShell cmdlet
