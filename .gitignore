@@ -8,6 +8,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+nocommit/
 build/
 develop-eggs/
 dist/
@@ -104,3 +105,4 @@ venv.bak/
 
 # My stuff
 cache
+web_delivery.rc
