@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from .helpers import convert_dict_to_sorted_list
 
 class Module:
 
@@ -7,9 +8,11 @@ class Module:
         self.mod_path = mod_path
         self.mod_name = mod_path.split('/')[-1]
 
-    async def get_module_info(self, client):
-        """
-        API call to get the module's data. This module is one of the few that will not
+    async def run_module(self, client):
+
+
+    async def get_mod_info(self, client):
+        """API call to get the module's data. This module is one of the few that will not
         encode it's returned values to UTF8 because it's too complex.
 
         Returns:
@@ -62,8 +65,43 @@ class Module:
 
         return req_opts
 
-    async def get_mod_targets(self, mod_data):
-        """Gather all the potential targets for a module
+    async def get_mod_target(self, mod_data, platform):
+        """Gather all the potential targets for a module.
+
+        Some examples:
+        struts_dmi_exec - 0   Windows Universal
+                          1   Linux Universal
+                          2   Java Universal
+        jboss_maindeployer - 0   Automatic (Java based)
+                             1   Windows Universal
+                             2   Linux Universal
+                             3   Java Universal
+        rpc_cmsd_opcode21 - 0   IBM AIX Version 5.1
+
+        Args:
+            mod_data (dict): nonutf8 dict of module data
+            platform (utf8): value of the MSF returned session data dict, eg, 'windows', 'aix'
 
         Returns:
-            dict of target options"""
+            str: the utf8 string of the target number
+        """
+        # Sort the module's target dictionary to make sure the target numbers are in order
+        # targets = [(0, b'Automatic'), (1, b'Windows')]
+        targets = await convert_dict_to_sorted_list(mod_data[b'targets'])
+        platform = platform.lower()
+
+        for t in targets:
+            target_num = str(t[0])
+            target_desc = t[1].decode('utf8').lower()
+
+            if 'automatic' in target_desc:
+                return target_num
+
+            # If it doesn't autotarget then go for the universal platform target
+            elif 'universal' in target_desc and platform in target_desc:
+                return target_num
+
+            # If no autotarget and no universal, just use default which is '0'
+            else:
+                return '0'
+

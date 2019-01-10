@@ -33,3 +33,9 @@ async def get_output_errors(output, cmd):
             err = {'cmd': cmd, 'err': output}
 
     return err
+
+async def convert_dict_to_sorted_list(dict):
+    """Converts a dictionary object into a sorted-by-key list of tuples"""
+    lst = list(dict.items())
+    lst.sort()
+    return lst
