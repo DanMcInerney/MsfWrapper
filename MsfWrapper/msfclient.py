@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 # MSF-RPC - A  Python library to facilitate MSG-RPC communication with Metasploit
 
@@ -37,7 +37,7 @@ class MsfAuthError(MsfError):
         self.msg = msg
 
 
-class Msfrpc:
+class RpcClient:
 
     def __init__(self, opts=[]):
         self.host = opts.get('host') or "127.0.0.1"
